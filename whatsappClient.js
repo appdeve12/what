@@ -9,22 +9,28 @@ console.log("🔄 Initializing WhatsApp sessions...");
 // ✅ Function to get Chrome/Chromium path based on OS
 function getChromeExecutablePath() {
   const platform = os.platform();
+  console.log(`🖥️ Detected OS platform: ${platform}`);
 
   if (platform === 'win32') {
-    // Windows
+    console.log("🔍 Using Windows Chrome path");
     return 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
   } else if (platform === 'darwin') {
-    // macOS
+    console.log("🔍 Using macOS Chrome path");
     return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   } else {
-    // Linux (deployment)
-    return '/usr/bin/google-chrome'; // or '/usr/bin/google-chrome' if you're using Google Chrome
+    console.log("🔍 Using Linux Chrome path");
+    return '/usr/bin/google-chrome';
   }
 }
 
 sessionIds.forEach(id => {
+  console.log(`🚀 Setting up WhatsApp client for session ID: ${id}`);
+
+  const auth = new LocalAuth({ clientId: id });
+  console.log(`🛡️ Auth strategy initialized for ${id}:`, auth);
+
   const client = new Client({
-    authStrategy: new LocalAuth({ clientId: id }),
+    authStrategy: auth,
     puppeteer: {
       headless: true,
       executablePath: getChromeExecutablePath(),
@@ -32,12 +38,32 @@ sessionIds.forEach(id => {
     },
   });
 
-  client.on('ready', () => console.log(`✅ WhatsApp client ${id} ready`));
-  client.on('auth_failure', msg => console.error(`❌ Auth failure for ${id}:`, msg));
-  client.on('disconnected', reason => console.warn(`⚠️ Disconnected ${id}:`, reason));
+  client.on('qr', qr => {
+    console.log(`📸 QR code received for session ${id}. Scan this in WhatsApp.`);
+  });
 
-  client.initialize();
-  clients[id] = client;
+  client.on('ready', () => {
+    console.log(`✅ WhatsApp client ${id} is ready`);
+  });
+
+  client.on('auth_failure', msg => {
+    console.error(`❌ Authentication failure for session ${id}:`, msg);
+  });
+
+  client.on('disconnected', reason => {
+    console.warn(`⚠️ WhatsApp client ${id} disconnected:`, reason);
+  });
+
+  client.on('error', error => {
+    console.error(`🔥 Error for client ${id}:`, error);
+  });
+
+  try {
+    client.initialize();
+    clients[id] = client;
+  } catch (err) {
+    console.error(`❌ Failed to initialize client ${id}:`, err);
+  }
 });
 
 module.exports = { clients, sessionIds };

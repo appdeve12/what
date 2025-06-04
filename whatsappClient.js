@@ -7,7 +7,6 @@ const clients = {};
 
 console.log("🔄 Initializing WhatsApp sessions...");
 
-// Function to get Chrome/Chromium executable path based on OS
 function getChromeExecutablePath() {
   const platform = os.platform();
   console.log(`🖥️ Detected OS platform: ${platform}`);
@@ -28,7 +27,7 @@ sessionIds.forEach(id => {
   console.log(`🚀 Setting up WhatsApp client for session ID: ${id}`);
 
   const auth = new LocalAuth({ clientId: id });
-  console.log(`🛡️ Auth strategy initialized for ${id},${auth}`);
+  console.log(`🛡️ Auth strategy initialized for ${id}`);
 
   const client = new Client({
     authStrategy: auth,
@@ -39,6 +38,10 @@ sessionIds.forEach(id => {
     },
   });
 
+  client.on('qr', qr => {
+    console.log(`📸 QR code for ${id}:`);
+    qrcode.generate(qr, { small: true });
+  });
 
   client.on('ready', () => {
     console.log(`✅ WhatsApp client ${id} is ready`);

@@ -5,10 +5,14 @@ const sessionIds = ['7985490508', '9540215846']; // Replace with your actual num
 const clients = {};
 
 sessionIds.forEach(id => {
-  const client = new Client({
-    authStrategy: new LocalAuth({ clientId: id }), // Session stored in .wwebjs_auth/id
-    puppeteer: { headless: true }
-  });
+ const client = new Client({
+  authStrategy: new LocalAuth({ clientId: id }),
+  puppeteer: {
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  }
+});
+
 
   client.on('qr', qr => {
     console.log(`Scan QR for number ${id}:`);

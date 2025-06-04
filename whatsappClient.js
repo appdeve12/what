@@ -28,7 +28,7 @@ sessionIds.forEach(id => {
   console.log(`🚀 Setting up WhatsApp client for session ID: ${id}`);
 
   const auth = new LocalAuth({ clientId: id });
-  console.log(`🛡️ Auth strategy initialized for ${id}`);
+  console.log(`🛡️ Auth strategy initialized for ${id},${auth}`);
 
   const client = new Client({
     authStrategy: auth,
@@ -39,10 +39,6 @@ sessionIds.forEach(id => {
     },
   });
 
-  client.on('qr', qr => {
-    console.log(`📸 QR code received for session ${id}. Scan this QR code in WhatsApp:`);
-    qrcode.generate(qr, { small: true }); // Shows QR in terminal
-  });
 
   client.on('ready', () => {
     console.log(`✅ WhatsApp client ${id} is ready`);

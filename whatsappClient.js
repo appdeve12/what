@@ -6,7 +6,7 @@ const clients = {};
 
 console.log("🔄 Initializing WhatsApp sessions...");
 
-// ✅ Function to get Chrome/Chromium path based on OS
+// ✅ Detect OS and return correct Chrome path
 function getChromeExecutablePath() {
   const platform = os.platform();
   console.log(`🖥️ Detected OS platform: ${platform}`);
@@ -23,6 +23,7 @@ function getChromeExecutablePath() {
   }
 }
 
+// ✅ Loop through all session IDs and set up WhatsApp clients
 sessionIds.forEach(id => {
   console.log(`🚀 Setting up WhatsApp client for session ID: ${id}`);
 
@@ -32,9 +33,18 @@ sessionIds.forEach(id => {
   const client = new Client({
     authStrategy: auth,
     puppeteer: {
-      headless: true,
+      headless: 'new', // ✅ More stable headless mode
       executablePath: getChromeExecutablePath(),
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu'
+      ],
     },
   });
 
@@ -58,12 +68,15 @@ sessionIds.forEach(id => {
     console.error(`🔥 Error for client ${id}:`, error);
   });
 
-  try {
-    client.initialize();
-    clients[id] = client;
-  } catch (err) {
-    console.error(`❌ Failed to initialize client ${id}:`, err);
-  }
+  // ✅ Optional delay to prevent race condition
+  setTimeout(() => {
+    try {
+      client.initialize();
+      clients[id] = client;
+    } catch (err) {
+      console.error(`❌ Failed to initialize client ${id}:`, err);
+    }
+  }, 1000); // 1-second delay
 });
 
 module.exports = { clients, sessionIds };

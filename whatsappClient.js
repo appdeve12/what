@@ -34,11 +34,21 @@ sessionIds.forEach(id => {
     puppeteer: {
       headless: true,                  // Use stable headless mode
       executablePath: getChromeExecutablePath(),
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-      ],
-      timeout: 60000,                  // 60 seconds timeout
+   args: [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',    // Use /tmp instead of /dev/shm, avoids memory issues
+  '--disable-gpu',              // Disable GPU acceleration
+  '--single-process',           // Run Chrome in a single process
+  '--no-zygote',                // Avoid zygote process for better stability
+  '--disable-background-networking',
+  '--disable-default-apps',
+  '--disable-extensions',
+  '--disable-sync',
+  '--disable-translate',
+],
+
+      
       dumpio: false,                   // Show Chrome logs in console
     },
   });

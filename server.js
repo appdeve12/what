@@ -11,15 +11,7 @@ const whatsappRoutes = require('./routes/whatsappRoutes');
 const app = express();
 
 app.use(bodyParser.json());
-
-
-// Allow requests only from your frontend IP
-app.use(cors({
-  origin: 'http://16.171.161.238',
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  credentials: true // If using cookies/auth headers
-}));
-
+app.use(cors());
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI).then(() => console.log('MongoDB connected'))

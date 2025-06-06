@@ -39,7 +39,7 @@ sessionIds.forEach(id => {
         '--disable-setuid-sandbox',
       ],
       timeout: 60000,                  // 60 seconds timeout
-      dumpio: true,                   // Show Chrome logs in console
+      dumpio: false,                   // Show Chrome logs in console
     },
   });
 

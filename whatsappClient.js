@@ -10,6 +10,7 @@ function getChromeExecutablePath() {
   const platform = os.platform();
   console.log(`🖥️ Detected OS platform: ${platform}`);
 
+  
   if (platform === 'win32') {
     console.log("🔍 Using Windows Chrome path");
     return 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';

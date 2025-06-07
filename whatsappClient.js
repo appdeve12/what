@@ -1,6 +1,6 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const os = require('os');
-
+const qrcode = require('qrcode-terminal')
 const sessionIds = ['9540215846'];
 const clients = {};
 
@@ -49,10 +49,10 @@ async function initClient(id) {
     },
   });
 
-  client.on('qr', (qr) => {
-    console.log(`📸 QR code received for session ${id}. Scan this in WhatsApp.`);
-  });
-
+client.on('qr', (qr) => {
+  console.log(`📸 QR code received for session ${id}. Scan this in WhatsApp.`);
+  qrcode.generate(qr, { small: true });  // ✅ This line shows QR in terminal
+});
   client.on('ready', () => {
     console.log(`✅ WhatsApp client ${id} is ready`);
     clients[id] = client; // ✅ Move assignment here

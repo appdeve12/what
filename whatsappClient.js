@@ -1,9 +1,27 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
+const os = require('os');
 
 const sessionIds = ['9540215846'];
 const clients = {};
 
 console.log("🔄 Initializing WhatsApp sessions...");
+
+function getChromeExecutablePath() {
+  const platform = os.platform();
+  console.log(`🖥️ Detected OS platform: ${platform}`);
+
+  if (platform === 'win32') {
+    console.log("🔍 Using Windows Chrome path");
+    return 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+  } else if (platform === 'darwin') {
+    console.log("🔍 Using macOS Chrome path");
+    return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  } else {
+    console.log("🔍 Using Linux Chrome path");
+    // Change this if your chrome is installed at a different path
+    return '/usr/bin/google-chrome';
+  }
+}
 
 sessionIds.forEach(id => {
   console.log(`🚀 Setting up WhatsApp client for session ID: ${id}`);
@@ -14,13 +32,24 @@ sessionIds.forEach(id => {
   const client = new Client({
     authStrategy: auth,
     puppeteer: {
-      headless: true,               // Run headless
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-      ],
-      dumpio: true,                 // Show Chromium logs for debugging
-      // No executablePath: use Puppeteer's bundled Chromium
+      headless: true,                  // Use stable headless mode
+      executablePath: getChromeExecutablePath(),
+   args: [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',    // Use /tmp instead of /dev/shm, avoids memory issues
+  '--disable-gpu',              // Disable GPU acceleration
+  '--single-process',           // Run Chrome in a single process
+  '--no-zygote',                // Avoid zygote process for better stability
+  '--disable-background-networking',
+  '--disable-default-apps',
+  '--disable-extensions',
+  '--disable-sync',
+  '--disable-translate',
+],
+
+      
+      dumpio: false,                   // Show Chrome logs in console
     },
   });
 

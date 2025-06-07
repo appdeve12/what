@@ -18,7 +18,7 @@ function getChromeExecutablePath() {
     return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   } else {
     console.log("🔍 Using Linux Chrome path");
-    return '/usr/bin/google-chrome'; // adjust if needed
+    return '/usr/bin/google-chrome';
   }
 }
 
@@ -38,13 +38,11 @@ async function initClient(id) {
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-   
         '--no-zygote',
         '--disable-background-networking',
         '--disable-default-apps',
         '--disable-extensions',
         '--disable-sync',
-  
         '--disable-translate',
       ],
       dumpio: false,
@@ -57,6 +55,7 @@ async function initClient(id) {
 
   client.on('ready', () => {
     console.log(`✅ WhatsApp client ${id} is ready`);
+    clients[id] = client; // ✅ Move assignment here
   });
 
   client.on('auth_failure', (msg) => {
@@ -65,6 +64,7 @@ async function initClient(id) {
 
   client.on('disconnected', (reason) => {
     console.warn(`⚠️ WhatsApp client ${id} disconnected:`, reason);
+    delete clients[id]; // optional but useful
   });
 
   client.on('error', (error) => {
@@ -73,7 +73,6 @@ async function initClient(id) {
 
   try {
     await client.initialize();
-    clients[id] = client;
   } catch (err) {
     console.error(`❌ Failed to initialize client ${id}:`, err);
   }

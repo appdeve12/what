@@ -38,12 +38,13 @@ async function initClient(id) {
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--single-process',
+   
         '--no-zygote',
         '--disable-background-networking',
         '--disable-default-apps',
         '--disable-extensions',
         '--disable-sync',
+  
         '--disable-translate',
       ],
       dumpio: false,

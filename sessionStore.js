@@ -1,5 +1,5 @@
-// sessionStore.js
-const sessions = {};      // Stores realNumber -> client
-const tempSessions = {};  // Stores sessionId -> client (before login)
+const sessions = {};
+const tempSessions = {};
 
 module.exports = { sessions, tempSessions };
+

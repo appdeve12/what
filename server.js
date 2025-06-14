@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const { Server } = require('socket.io');
 const http = require('http');
@@ -9,6 +8,7 @@ const { v4: uuidv4 } = require('uuid');
 const mongoose = require('mongoose');
 require('dotenv').config();
 const os = require('os');
+
 // ROUTES
 const uploadRoutes = require('./routes/uploadRoutes');
 const authRoutes = require('./routes/authRoutes');
@@ -26,11 +26,10 @@ app.use(express.json());
 
 // MONGODB
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('MongoDB connection error:', err));
+  .then(() => console.log('✅ MongoDB connected'))
+  .catch(err => console.error('❌ MongoDB connection error:', err));
 
-// CREATE A WHATSAPP CLIENT SESSION
-
+// CHROME PATH DETECTION
 function getChromeExecutablePath() {
   const platform = os.platform();
   console.log(`🖥️ Detected OS platform: ${platform}`);
@@ -47,14 +46,22 @@ function getChromeExecutablePath() {
   }
 }
 
+// CREATE WHATSAPP CLIENT
 const createClient = (sessionId) => {
+  if (tempSessions[sessionId] || sessions[sessionId]) {
+    console.warn(`⚠️ Session ${sessionId} already exists. Skipping.`);
+    return;
+  }
+
+  console.log(`📲 Creating new client for session: ${sessionId}`);
+
   const client = new Client({
     authStrategy: new LocalAuth({ clientId: sessionId }),
     puppeteer: {
       headless: true,
-          executablePath: getChromeExecutablePath(),
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    }
+      executablePath: getChromeExecutablePath(),
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    },
   });
 
   client.on('qr', async (qr) => {
@@ -63,15 +70,16 @@ const createClient = (sessionId) => {
   });
 
   client.on('ready', () => {
-    const realNumber = client.info.wid.user;
-    console.log(`✅ Logged in: ${realNumber}`);
+    const realNumber = client.info?.wid?.user;
+    if (!realNumber) return;
 
+    console.log(`✅ Logged in: ${realNumber}`);
     sessions[realNumber] = client;
     delete tempSessions[sessionId];
 
     io.emit(`ready-${sessionId}`, {
       number: realNumber,
-      message: `Logged in as ${realNumber}`
+      message: `Logged in as ${realNumber}`,
     });
   });
 
@@ -79,15 +87,53 @@ const createClient = (sessionId) => {
     console.error(`❌ Auth failed for session ${sessionId}: ${msg}`);
   });
 
-  client.initialize();
+  client.on('disconnected', async (reason) => {
+    console.warn(`⚠️ Client disconnected: ${reason}`);
+    try {
+      await client.logout();
+    } catch (err) {
+      console.error(`❌ Logout error (disconnected): ${err.message}`);
+    }
+
+    const number = client.info?.wid?.user;
+    if (number) {
+      delete sessions[number];
+    }
+  });
+
+  client.initialize().catch(err => {
+    console.error('❌ Client initialization error:', err.message);
+  });
+
   tempSessions[sessionId] = client;
 };
 
-// START A NEW SESSION
+// START SESSION
 app.post('/start-session', (req, res) => {
   const sessionId = uuidv4();
   createClient(sessionId);
   res.json({ sessionId });
+});
+
+// LOGOUT SESSION
+app.post('/logout-session', async (req, res) => {
+  const { number } = req.body;
+  const client = sessions[number];
+
+  if (!client) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  try {
+    await client.logout();
+    await client.destroy();
+    delete sessions[number];
+    console.log(`🔌 Logged out and destroyed session for ${number}`);
+    res.json({ message: 'Session logged out successfully' });
+  } catch (error) {
+    console.error('❌ Logout error:', error.message);
+    res.status(500).json({ error: 'Failed to logout session' });
+  }
 });
 
 // ROUTES
@@ -96,11 +142,19 @@ app.use('/whatsapp', whatsappRoutes);
 app.use('/uploads', express.static('uploads'));
 app.use('/api', uploadRoutes);
 
-// SERVER START
+// START SERVER
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
 });
 
-// Export session utils if needed elsewhere
+// PREVENT UNCAUGHT ERRORS FROM CRASHING SERVER
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err.message);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('❌ Unhandled Rejection:', reason);
+});
+
 module.exports = { createClient };

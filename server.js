@@ -107,6 +107,25 @@ const createClient = (sessionId) => {
 
   tempSessions[sessionId] = client;
 };
+app.post("/check", async (req, res) => {
+  const { numbers, sessionNumber } = req.body;
+
+  const client = sessions[sessionNumber];
+  if (!client) return res.status(404).json({ error: "Session not active or not found" });
+
+  const results = [];
+  for (const number of numbers) {
+    const jid = `${number}@c.us`;
+    try {
+      const isRegistered = await client.isRegisteredUser(jid);
+      results.push({ number, isRegistered });
+    } catch (err) {
+      results.push({ number, isRegistered: false, error: true });
+    }
+  }
+
+  res.json({ results });
+});
 
 // START SESSION
 app.post('/start-session', (req, res) => {

@@ -300,12 +300,10 @@ exports.sendMessage = async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(401).json({ error: 'User not found' });
 
+    const MAX_PER_SESSION = 400;
     const results = [];
-    const MAX_RECEIVER_PER_SESSION = 2;
 
-    let toIndex = 0;
-    let fromIndex = 0;
-
+    // 🔁 Helper: Send media files
     const sendLocalFiles = async (files, typeLabel, chatId, currentClient) => {
       if (!files) return;
       const arr = Array.isArray(files) ? files : [files];
@@ -322,44 +320,72 @@ exports.sendMessage = async (req, res) => {
       }
     };
 
-    while (toIndex < to.length) {
-      if (fromIndex >= from.length) break;
+    // 🔁 Helper: Distribute contacts across sessions
+    const distributeContactsEvenly = (to, from, maxPerSession) => {
+      const assignments = {};
+      from.forEach(session => (assignments[session] = []));
 
-      const currentSender = from[fromIndex];
-      const currentClient = sessions[currentSender];
+      let sessionIndex = 0;
+
+      for (let i = 0; i < to.length; i++) {
+        let currentSession = from[sessionIndex];
+
+        // Ensure current session doesn't exceed max limit
+        while (assignments[currentSession].length >= maxPerSession) {
+          sessionIndex = (sessionIndex + 1) % from.length;
+          currentSession = from[sessionIndex];
+
+          // If all sessions are full
+          if (Object.values(assignments).every(list => list.length >= maxPerSession)) {
+            throw new Error(`Cannot assign more than ${maxPerSession} contacts per session. Add more sessions or reduce total recipients.`);
+          }
+        }
+
+        assignments[currentSession].push(to[i]);
+      }
+
+      return assignments;
+    };
+
+    // 📤 Assign contacts
+    let assignments;
+    try {
+      assignments = distributeContactsEvenly(to, from, MAX_PER_SESSION);
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+
+    // 🚀 Loop over each session and assigned contacts
+    for (const sessionId in assignments) {
+      const currentClient = sessions[sessionId];
+      const recipients = assignments[sessionId];
 
       if (!currentClient) {
-        results.push({ from: currentSender, error: 'Client not active or session missing' });
-        fromIndex++;
+        results.push({ from: sessionId, error: 'Client not active or session missing' });
         continue;
       }
 
-      const receiverBatch = to.slice(toIndex, toIndex + MAX_RECEIVER_PER_SESSION);
-
-      for (let recipient of receiverBatch) {
+      for (let recipient of recipients) {
         const chatId = recipient.endsWith('@c.us') ? recipient : `${recipient}@c.us`;
 
-        // Send text message(s)
+        // Text message(s)
         if (message) {
           const texts = Array.isArray(message) ? message : [message];
           for (let msg of texts) {
             await currentClient.sendMessage(chatId, msg);
-            results.push({ from: currentSender, to: recipient, type: 'text', message: msg, status: 'sent' });
+            results.push({ from: sessionId, to: recipient, type: 'text', message: msg, status: 'sent' });
           }
         }
 
-        // Send media
+        // Media files
         await sendLocalFiles(photo, 'photo', chatId, currentClient);
         await sendLocalFiles(pdf, 'pdf', chatId, currentClient);
         await sendLocalFiles(docx, 'docx', chatId, currentClient);
         await sendLocalFiles(video, 'video', chatId, currentClient);
       }
-
-      toIndex += MAX_RECEIVER_PER_SESSION;
-      fromIndex++;
     }
 
-    // Save to DB
+    // 💾 Save to DB
     await Whatsapp.create({
       user: userId,
       from,

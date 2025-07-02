@@ -275,7 +275,6 @@ const sendMessageCore = async ({ from, to, message, photo, pdf, docx, video, use
 
 
 
-
 exports.sendMessage = async (req, res) => {
   const {
     to,
@@ -300,7 +299,6 @@ exports.sendMessage = async (req, res) => {
     const user = await User.findById(userId);
     if (!user) return res.status(401).json({ error: 'User not found' });
 
-    const MAX_PER_SESSION = 400;
     const results = [];
 
     // 🔁 Helper: Send media files
@@ -320,55 +318,18 @@ exports.sendMessage = async (req, res) => {
       }
     };
 
-    // 🔁 Helper: Distribute contacts across sessions
-    const distributeContactsEvenly = (to, from, maxPerSession) => {
-      const assignments = {};
-      from.forEach(session => (assignments[session] = []));
-
-      let sessionIndex = 0;
-
-      for (let i = 0; i < to.length; i++) {
-        let currentSession = from[sessionIndex];
-
-        // Ensure current session doesn't exceed max limit
-        while (assignments[currentSession].length >= maxPerSession) {
-          sessionIndex = (sessionIndex + 1) % from.length;
-          currentSession = from[sessionIndex];
-
-          // If all sessions are full
-          if (Object.values(assignments).every(list => list.length >= maxPerSession)) {
-            throw new Error(`Cannot assign more than ${maxPerSession} contacts per session. Add more sessions or reduce total recipients.`);
-          }
-        }
-
-        assignments[currentSession].push(to[i]);
-      }
-
-      return assignments;
-    };
-
-    // 📤 Assign contacts
-    let assignments;
-    try {
-      assignments = distributeContactsEvenly(to, from, MAX_PER_SESSION);
-    } catch (error) {
-      return res.status(400).json({ error: error.message });
-    }
-
-    // 🚀 Loop over each session and assigned contacts
-    for (const sessionId in assignments) {
+    // 🚀 Helper: Try sending the message using available session(s)
+    const trySendingMessage = async (sessions, recipient, message, sessionId) => {
       const currentClient = sessions[sessionId];
-      const recipients = assignments[sessionId];
 
       if (!currentClient) {
-        results.push({ from: sessionId, error: 'Client not active or session missing' });
-        continue;
+        throw new Error(`Session ${sessionId} not available`);
       }
 
-      for (let recipient of recipients) {
-        const chatId = recipient.endsWith('@c.us') ? recipient : `${recipient}@c.us`;
+      const chatId = recipient.endsWith('@c.us') ? recipient : `${recipient}@c.us`;
 
-        // Text message(s)
+      try {
+        // Send text message
         if (message) {
           const texts = Array.isArray(message) ? message : [message];
           for (let msg of texts) {
@@ -377,11 +338,34 @@ exports.sendMessage = async (req, res) => {
           }
         }
 
-        // Media files
+        // Send media files
         await sendLocalFiles(photo, 'photo', chatId, currentClient);
         await sendLocalFiles(pdf, 'pdf', chatId, currentClient);
         await sendLocalFiles(docx, 'docx', chatId, currentClient);
         await sendLocalFiles(video, 'video', chatId, currentClient);
+        
+      } catch (err) {
+        throw new Error(`Failed to send message from session ${sessionId}: ${err.message}`);
+      }
+    };
+
+    // 🚀 Loop over each session and recipients, with fallback
+    for (let recipient of to) {
+      let messageSent = false;
+
+      for (let sessionId of from) {
+        try {
+          await trySendingMessage(sessions, recipient, message, sessionId);
+          messageSent = true;
+          break; // If message sent successfully, break out of loop
+        } catch (err) {
+          results.push({ from: sessionId, to: recipient, error: err.message });
+        }
+      }
+
+      // If no session was able to send the message
+      if (!messageSent) {
+        results.push({ to: recipient, error: 'No available session to send the message' });
       }
     }
 

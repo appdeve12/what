@@ -275,6 +275,136 @@ const sendMessageCore = async ({ from, to, message, photo, pdf, docx, video, use
 
 
 
+
+// exports.sendMessage = async (req, res) => {
+//   const {
+//     to,
+//     message,
+//     from, // array of session numbers (e.g., ["9188XXXX", "9196XXXX"])
+//     pdf,
+//     docx,
+//     photo,
+//     video,
+//   } = req.body;
+
+//   if (!to || !Array.isArray(to) || to.length === 0 || !Array.isArray(from) || from.length === 0) {
+//     return res.status(400).json({ error: "'to' and 'from' must be non-empty arrays." });
+//   }
+
+//   if (!message && !photo && !pdf && !docx && !video) {
+//     return res.status(400).json({ error: 'At least one message or media type must be provided.' });
+//   }
+
+//   try {
+//     const userId = req.user.id;
+//     const user = await User.findById(userId);
+//     if (!user) return res.status(401).json({ error: 'User not found' });
+
+//     const MAX_PER_SESSION = 400;
+//     const results = [];
+
+//     // 🔁 Helper: Send media files
+//     const sendLocalFiles = async (files, typeLabel, chatId, currentClient) => {
+//       if (!files) return;
+//       const arr = Array.isArray(files) ? files : [files];
+
+//       for (let filePath of arr) {
+//         const fullPath = path.join(__dirname, '..', 'uploads', filePath);
+//         if (fs.existsSync(fullPath)) {
+//           const media = MessageMedia.fromFilePath(fullPath);
+//           await currentClient.sendMessage(chatId, media);
+//           results.push({ to: chatId, type: typeLabel, file: filePath, status: 'sent' });
+//         } else {
+//           results.push({ to: chatId, type: typeLabel, file: filePath, status: 'file not found' });
+//         }
+//       }
+//     };
+
+//     // 🔁 Helper: Distribute contacts across sessions
+//     const distributeContactsEvenly = (to, from, maxPerSession) => {
+//       const assignments = {};
+//       from.forEach(session => (assignments[session] = []));
+
+//       let sessionIndex = 0;
+
+//       for (let i = 0; i < to.length; i++) {
+//         let currentSession = from[sessionIndex];
+
+//         // Ensure current session doesn't exceed max limit
+//         while (assignments[currentSession].length >= maxPerSession) {
+//           sessionIndex = (sessionIndex + 1) % from.length;
+//           currentSession = from[sessionIndex];
+
+//           // If all sessions are full
+//           if (Object.values(assignments).every(list => list.length >= maxPerSession)) {
+//             throw new Error(`Cannot assign more than ${maxPerSession} contacts per session. Add more sessions or reduce total recipients.`);
+//           }
+//         }
+
+//         assignments[currentSession].push(to[i]);
+//       }
+
+//       return assignments;
+//     };
+
+//     // 📤 Assign contacts
+//     let assignments;
+//     try {
+//       assignments = distributeContactsEvenly(to, from, MAX_PER_SESSION);
+//     } catch (error) {
+//       return res.status(400).json({ error: error.message });
+//     }
+
+//     // 🚀 Loop over each session and assigned contacts
+//     for (const sessionId in assignments) {
+//       const currentClient = sessions[sessionId];
+//       const recipients = assignments[sessionId];
+
+//       if (!currentClient) {
+//         results.push({ from: sessionId, error: 'Client not active or session missing' });
+//         continue;
+//       }
+
+//       for (let recipient of recipients) {
+//         const chatId = recipient.endsWith('@c.us') ? recipient : `${recipient}@c.us`;
+
+//         // Text message(s)
+//         if (message) {
+//           const texts = Array.isArray(message) ? message : [message];
+//           for (let msg of texts) {
+//             await currentClient.sendMessage(chatId, msg);
+//             results.push({ from: sessionId, to: recipient, type: 'text', message: msg, status: 'sent' });
+//           }
+//         }
+
+//         // Media files
+//         await sendLocalFiles(photo, 'photo', chatId, currentClient);
+//         await sendLocalFiles(pdf, 'pdf', chatId, currentClient);
+//         await sendLocalFiles(docx, 'docx', chatId, currentClient);
+//         await sendLocalFiles(video, 'video', chatId, currentClient);
+//       }
+//     }
+
+//     // 💾 Save to DB
+//     await Whatsapp.create({
+//       user: userId,
+//       from,
+//       to,
+//       message,
+//       pdf,
+//       docx,
+//       photo,
+//       video,
+//     });
+
+//     res.json({ status: 'sent', results });
+
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ error: err.message });
+//   }
+// };
+
 exports.sendMessage = async (req, res) => {
   const {
     to,
@@ -300,8 +430,6 @@ exports.sendMessage = async (req, res) => {
     if (!user) return res.status(401).json({ error: 'User not found' });
 
     const results = [];
-
-    // 🔁 Helper: Send media files
     const sendLocalFiles = async (files, typeLabel, chatId, currentClient) => {
       if (!files) return;
       const arr = Array.isArray(files) ? files : [files];
@@ -349,7 +477,7 @@ exports.sendMessage = async (req, res) => {
       }
     };
 
-    // 🚀 Loop over each session and recipients, with fallback
+    // 🚀 Loop over each session and recipients, with fallback on session disconnect
     for (let recipient of to) {
       let messageSent = false;
 
@@ -359,6 +487,7 @@ exports.sendMessage = async (req, res) => {
           messageSent = true;
           break; // If message sent successfully, break out of loop
         } catch (err) {
+          // If session fails, add it to the results and try the next session
           results.push({ from: sessionId, to: recipient, error: err.message });
         }
       }
@@ -369,17 +498,25 @@ exports.sendMessage = async (req, res) => {
       }
     }
 
-    // 💾 Save to DB
-    await Whatsapp.create({
-      user: userId,
-      from,
-      to,
-      message,
-      pdf,
-      docx,
-      photo,
-      video,
-    });
+
+    // Filter only successful sent results
+const successfulSends = results.filter(r => r.status === 'sent' && r.to);
+
+// Save each successful message separately
+for (let entry of successfulSends) {
+  await Whatsapp.create({
+    user: userId,
+    from: entry.from || from, // fallback
+    to: entry.to,
+    type: entry.type || 'text',
+    message: entry.message || '',
+    pdf: entry.type === 'pdf' ? entry.file : undefined,
+    docx: entry.type === 'docx' ? entry.file : undefined,
+    photo: entry.type === 'photo' ? entry.file : undefined,
+    video: entry.type === 'video' ? entry.file : undefined,
+  });
+}
+
 
     res.json({ status: 'sent', results });
 

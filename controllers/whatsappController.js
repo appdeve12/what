@@ -503,19 +503,65 @@ exports.sendMessage = async (req, res) => {
 const successfulSends = results.filter(r => r.status === 'sent' && r.to);
 
 // Save each successful message separately
+// for (let entry of successfulSends) {
+//   await Whatsapp.create({
+//     user: userId,
+//     from: entry.from || from, // fallback
+//     to: entry.to,
+//     type: entry.type || 'text',
+//     message: entry.message || '',
+//     pdf: entry.type === 'pdf' ? entry.file : undefined,
+//     docx: entry.type === 'docx' ? entry.file : undefined,
+//     photo: entry.type === 'photo' ? entry.file : undefined,
+//     video: entry.type === 'video' ? entry.file : undefined,
+//   });
+//     await Whatsapp.create({
+//       user: userId,
+//       from,
+//       to,
+//       message,
+//       pdf,
+//       docx,
+//       photo,
+//       video,
+//     });
+// }
+// After all sending and collecting results
+
+
+
+const combined = {
+  user: userId,
+  from: [],
+  to: [],
+  message: [],
+  pdf: null,
+  docx: null,
+  photo: [],
+  video: null,
+};
+
 for (let entry of successfulSends) {
-  await Whatsapp.create({
-    user: userId,
-    from: entry.from || from, // fallback
-    to: entry.to,
-    type: entry.type || 'text',
-    message: entry.message || '',
-    pdf: entry.type === 'pdf' ? entry.file : undefined,
-    docx: entry.type === 'docx' ? entry.file : undefined,
-    photo: entry.type === 'photo' ? entry.file : undefined,
-    video: entry.type === 'video' ? entry.file : undefined,
-  });
+  if (entry.from && !combined.from.includes(entry.from)) {
+    combined.from.push(entry.from);
+  }
+  if (entry.to && !combined.to.includes(entry.to)) {
+    combined.to.push(entry.to);
+  }
+  if (entry.type === 'text' && entry.message) {
+    combined.message.push(entry.message);
+  } else if (entry.type === 'pdf' && !combined.pdf) {
+    combined.pdf = entry.file;
+  } else if (entry.type === 'docx' && !combined.docx) {
+    combined.docx = entry.file;
+  } else if (entry.type === 'photo' && entry.file) {
+    combined.photo.push(entry.file);
+  } else if (entry.type === 'video' && !combined.video) {
+    combined.video = entry.file;
+  }
 }
+
+await Whatsapp.create(combined);
 
 
     res.json({ status: 'sent', results });

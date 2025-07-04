@@ -490,7 +490,7 @@ exports.sendMessage = async (req, res) => {
     }
 
     const successfulSends = results.filter(r => r.status === 'sent' && r.to);
-
+console.log("successfulSends",successfulSends)
     const combined = {
       user: userId,
       from: [],
@@ -522,7 +522,14 @@ exports.sendMessage = async (req, res) => {
       }
     }
 
-    await Whatsapp.create(combined);
+   console.log("🔥 Results:", JSON.stringify(results, null, 2));
+    console.log("✅ Successful Sends:", JSON.stringify(successfulSends, null, 2));
+    console.log("🧩 Final Combined Object:", JSON.stringify(combined, null, 2));
+
+    // ✅ Save to DB
+    if (successfulSends.length > 0) {
+      await Whatsapp.create(combined);
+    }
 
     res.json({ status: 'sent', results });
 

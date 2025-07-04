@@ -490,37 +490,41 @@ exports.sendMessage = async (req, res) => {
     }
 
     const successfulSends = results.filter(r => r.status === 'sent' && r.to);
-console.log("successfulSends",successfulSends)
-    const combined = {
-      user: userId,
-      from: [],
-      to: [],
-      message: [],
-      pdf: null,
-      docx: null,
-      photo: [],
-      video: null,
-    };
+const combined = {
+  user: userId,
+  from: new Set(),
+  to: new Set(),
+  message: new Set(),
+  pdf: null,
+  docx: null,
+  photo: new Set(),
+  video: null,
+};
 
-    for (let entry of successfulSends) {
-      if (entry.from && !combined.from.includes(entry.from)) {
-        combined.from.push(entry.from);
-      }
-      if (entry.to && !combined.to.includes(entry.to)) {
-        combined.to.push(entry.to.replace('@c.us', ''));
-      }
-      if (entry.type === 'text' && entry.message) {
-        combined.message.push(entry.message);
-      } else if (entry.type === 'pdf' && entry.file && !combined.pdf) {
-        combined.pdf = entry.file;
-      } else if (entry.type === 'docx' && entry.file && !combined.docx) {
-        combined.docx = entry.file;
-      } else if (entry.type === 'photo' && entry.file) {
-        combined.photo.push(entry.file);
-      } else if (entry.type === 'video' && entry.file && !combined.video) {
-        combined.video = entry.file;
-      }
-    }
+for (let entry of successfulSends) {
+  if (entry.from) combined.from.add(entry.from);
+  if (entry.to) combined.to.add(entry.to.replace('@c.us', ''));
+  
+  if (entry.type === 'text' && entry.message) {
+    combined.message.add(entry.message);
+  } else if (entry.type === 'pdf' && entry.file && !combined.pdf) {
+    combined.pdf = entry.file;
+  } else if (entry.type === 'docx' && entry.file && !combined.docx) {
+    combined.docx = entry.file;
+  } else if (entry.type === 'photo' && entry.file) {
+    combined.photo.add(entry.file);
+  } else if (entry.type === 'video' && entry.file && !combined.video) {
+    combined.video = entry.file;
+  }
+}
+
+// Convert Sets to Arrays
+combined.from = [...combined.from];
+combined.to = [...combined.to];
+combined.message = [...combined.message];
+combined.photo = [...combined.photo];
+
+
 
    console.log("🔥 Results:", JSON.stringify(results, null, 2));
     console.log("✅ Successful Sends:", JSON.stringify(successfulSends, null, 2));

@@ -430,7 +430,8 @@ exports.sendMessage = async (req, res) => {
     if (!user) return res.status(401).json({ error: 'User not found' });
 
     const results = [];
-    const sendLocalFiles = async (files, typeLabel, chatId, currentClient) => {
+
+    const sendLocalFiles = async (files, typeLabel, chatId, currentClient, sessionId) => {
       if (!files) return;
       const arr = Array.isArray(files) ? files : [files];
 
@@ -439,25 +440,19 @@ exports.sendMessage = async (req, res) => {
         if (fs.existsSync(fullPath)) {
           const media = MessageMedia.fromFilePath(fullPath);
           await currentClient.sendMessage(chatId, media);
-          results.push({ to: chatId, type: typeLabel, file: filePath, status: 'sent' });
+          results.push({ from: sessionId, to: chatId, type: typeLabel, file: filePath, status: 'sent' });
         } else {
-          results.push({ to: chatId, type: typeLabel, file: filePath, status: 'file not found' });
+          results.push({ from: sessionId, to: chatId, type: typeLabel, file: filePath, status: 'file not found' });
         }
       }
     };
 
-    // 🚀 Helper: Try sending the message using available session(s)
     const trySendingMessage = async (sessions, recipient, message, sessionId) => {
       const currentClient = sessions[sessionId];
-
-      if (!currentClient) {
-        throw new Error(`Session ${sessionId} not available`);
-      }
-
+      if (!currentClient) throw new Error(`Session ${sessionId} not available`);
       const chatId = recipient.endsWith('@c.us') ? recipient : `${recipient}@c.us`;
 
       try {
-        // Send text message
         if (message) {
           const texts = Array.isArray(message) ? message : [message];
           for (let msg of texts) {
@@ -466,18 +461,16 @@ exports.sendMessage = async (req, res) => {
           }
         }
 
-        // Send media files
-        await sendLocalFiles(photo, 'photo', chatId, currentClient);
-        await sendLocalFiles(pdf, 'pdf', chatId, currentClient);
-        await sendLocalFiles(docx, 'docx', chatId, currentClient);
-        await sendLocalFiles(video, 'video', chatId, currentClient);
-        
+        // Media files
+        await sendLocalFiles(photo, 'photo', chatId, currentClient, sessionId);
+        await sendLocalFiles(pdf, 'pdf', chatId, currentClient, sessionId);
+        await sendLocalFiles(docx, 'docx', chatId, currentClient, sessionId);
+        await sendLocalFiles(video, 'video', chatId, currentClient, sessionId);
       } catch (err) {
         throw new Error(`Failed to send message from session ${sessionId}: ${err.message}`);
       }
     };
 
-    // 🚀 Loop over each session and recipients, with fallback on session disconnect
     for (let recipient of to) {
       let messageSent = false;
 
@@ -485,84 +478,51 @@ exports.sendMessage = async (req, res) => {
         try {
           await trySendingMessage(sessions, recipient, message, sessionId);
           messageSent = true;
-          break; // If message sent successfully, break out of loop
+          break;
         } catch (err) {
-          // If session fails, add it to the results and try the next session
           results.push({ from: sessionId, to: recipient, error: err.message });
         }
       }
 
-      // If no session was able to send the message
       if (!messageSent) {
         results.push({ to: recipient, error: 'No available session to send the message' });
       }
     }
 
+    const successfulSends = results.filter(r => r.status === 'sent' && r.to);
 
-    // Filter only successful sent results
-const successfulSends = results.filter(r => r.status === 'sent' && r.to);
+    const combined = {
+      user: userId,
+      from: [],
+      to: [],
+      message: [],
+      pdf: null,
+      docx: null,
+      photo: [],
+      video: null,
+    };
 
-// Save each successful message separately
-// for (let entry of successfulSends) {
-//   await Whatsapp.create({
-//     user: userId,
-//     from: entry.from || from, // fallback
-//     to: entry.to,
-//     type: entry.type || 'text',
-//     message: entry.message || '',
-//     pdf: entry.type === 'pdf' ? entry.file : undefined,
-//     docx: entry.type === 'docx' ? entry.file : undefined,
-//     photo: entry.type === 'photo' ? entry.file : undefined,
-//     video: entry.type === 'video' ? entry.file : undefined,
-//   });
-//     await Whatsapp.create({
-//       user: userId,
-//       from,
-//       to,
-//       message,
-//       pdf,
-//       docx,
-//       photo,
-//       video,
-//     });
-// }
-// After all sending and collecting results
+    for (let entry of successfulSends) {
+      if (entry.from && !combined.from.includes(entry.from)) {
+        combined.from.push(entry.from);
+      }
+      if (entry.to && !combined.to.includes(entry.to)) {
+        combined.to.push(entry.to.replace('@c.us', ''));
+      }
+      if (entry.type === 'text' && entry.message) {
+        combined.message.push(entry.message);
+      } else if (entry.type === 'pdf' && entry.file && !combined.pdf) {
+        combined.pdf = entry.file;
+      } else if (entry.type === 'docx' && entry.file && !combined.docx) {
+        combined.docx = entry.file;
+      } else if (entry.type === 'photo' && entry.file) {
+        combined.photo.push(entry.file);
+      } else if (entry.type === 'video' && entry.file && !combined.video) {
+        combined.video = entry.file;
+      }
+    }
 
-
-
-const combined = {
-  user: userId,
-  from: [],
-  to: [],
-  message: [],
-  pdf: null,
-  docx: null,
-  photo: [],
-  video: null,
-};
-
-for (let entry of successfulSends) {
-  if (entry.from && !combined.from.includes(entry.from)) {
-    combined.from.push(entry.from);
-  }
-  if (entry.to && !combined.to.includes(entry.to)) {
-    combined.to.push(entry.to);
-  }
-  if (entry.type === 'text' && entry.message) {
-    combined.message.push(entry.message);
-  } else if (entry.type === 'pdf' && !combined.pdf) {
-    combined.pdf = entry.file;
-  } else if (entry.type === 'docx' && !combined.docx) {
-    combined.docx = entry.file;
-  } else if (entry.type === 'photo' && entry.file) {
-    combined.photo.push(entry.file);
-  } else if (entry.type === 'video' && !combined.video) {
-    combined.video = entry.file;
-  }
-}
-
-await Whatsapp.create(combined);
-
+    await Whatsapp.create(combined);
 
     res.json({ status: 'sent', results });
 

@@ -405,6 +405,11 @@ const sendMessageCore = async ({ from, to, message, photo, pdf, docx, video, use
 //   }
 // };
 
+const BATCH_SIZE = 1;
+const PAUSE_DURATION = 60 * 1000; // 60 minutes
+
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 exports.sendMessage = async (req, res) => {
   const {
     to,
@@ -423,13 +428,6 @@ exports.sendMessage = async (req, res) => {
   if (!message && !photo && !pdf && !docx && !video) {
     return res.status(400).json({ error: 'At least one message or media type must be provided.' });
   }
-
-  const BATCH_SIZE = 900;
-  const PAUSE_DURATION = 60 * 60 * 1000; // 60 minutes
-
-
-
-  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
   try {
     const userId = req.user.id;
@@ -503,57 +501,57 @@ exports.sendMessage = async (req, res) => {
         }
       }
 
+      // ✅ Extract successful sends from this batch only
+      const batchResults = results.slice(); // snapshot
+      const successfulSends = batchResults.filter(r => r.status === 'sent' && r.to);
+
+      const combined = {
+        user: userId,
+        from: new Set(),
+        to: new Set(),
+        message: new Set(),
+        pdf: null,
+        docx: null,
+        photo: new Set(),
+        video: null,
+      };
+
+      for (let entry of successfulSends) {
+        if (entry.from) combined.from.add(entry.from);
+        if (entry.to) combined.to.add(entry.to.replace('@c.us', ''));
+
+        if (entry.type === 'text' && entry.message) {
+          combined.message.add(entry.message);
+        } else if (entry.type === 'pdf' && entry.file && !combined.pdf) {
+          combined.pdf = entry.file;
+        } else if (entry.type === 'docx' && entry.file && !combined.docx) {
+          combined.docx = entry.file;
+        } else if (entry.type === 'photo' && entry.file) {
+          combined.photo.add(entry.file);
+        } else if (entry.type === 'video' && entry.file && !combined.video) {
+          combined.video = entry.file;
+        }
+      }
+
+      // Convert Sets to Arrays
+      combined.from = [...combined.from];
+      combined.to = [...combined.to];
+      combined.message = [...combined.message];
+      combined.photo = [...combined.photo];
+
+      if (combined.to.length > 0) {
+        await Whatsapp.create(combined);
+        console.log("✅ Batch saved to DB:", JSON.stringify(combined, null, 2));
+      }
+
+      // Pause before next batch
       if (i + BATCH_SIZE < to.length) {
         console.log(`⏳ Pausing for ${PAUSE_DURATION / 60000} minutes before next batch...`);
         await delay(PAUSE_DURATION);
       }
     }
 
-    // Process successful messages
-    const successfulSends = results.filter(r => r.status === 'sent' && r.to);
-    const combined = {
-      user: userId,
-      from: new Set(),
-      to: new Set(),
-      message: new Set(),
-      pdf: null,
-      docx: null,
-      photo: new Set(),
-      video: null,
-    };
-
-    for (let entry of successfulSends) {
-      if (entry.from) combined.from.add(entry.from);
-      if (entry.to) combined.to.add(entry.to.replace('@c.us', ''));
-
-      if (entry.type === 'text' && entry.message) {
-        combined.message.add(entry.message);
-      } else if (entry.type === 'pdf' && entry.file && !combined.pdf) {
-        combined.pdf = entry.file;
-      } else if (entry.type === 'docx' && entry.file && !combined.docx) {
-        combined.docx = entry.file;
-      } else if (entry.type === 'photo' && entry.file) {
-        combined.photo.add(entry.file);
-      } else if (entry.type === 'video' && entry.file && !combined.video) {
-        combined.video = entry.file;
-      }
-    }
-
-    // Convert Sets to Arrays
-    combined.from = [...combined.from];
-    combined.to = [...combined.to];
-    combined.message = [...combined.message];
-    combined.photo = [...combined.photo];
-
-    // Log and save
-    console.log("🔥 Results:", JSON.stringify(results, null, 2));
-    console.log("✅ Successful Sends:", JSON.stringify(successfulSends, null, 2));
-    console.log("🧩 Final Combined Object:", JSON.stringify(combined, null, 2));
-
-    if (successfulSends.length > 0) {
-      await Whatsapp.create(combined);
-    }
-
+    // Final response
     res.json({ status: 'sent', results });
 
   } catch (err) {

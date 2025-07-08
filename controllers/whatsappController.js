@@ -405,8 +405,8 @@ const sendMessageCore = async ({ from, to, message, photo, pdf, docx, video, use
 //   }
 // };
 
-const BATCH_SIZE = 1;
-const PAUSE_DURATION = 60 * 1000; // 60 minutes
+const BATCH_SIZE = 900;
+const PAUSE_DURATION = 60 * 60 * 1000; // 60 minutes
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 

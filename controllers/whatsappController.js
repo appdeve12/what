@@ -146,7 +146,7 @@ const User = require('../models/User');
 const { MessageMedia } = require('whatsapp-web.js');
 const cron = require('node-cron');
 const { sessions } = require('../sessionStore');
-console.log("sessions",sessions)
+console.log("sessions", sessions)
 exports.scheduleMessage = async (req, res) => {
   const {
     from,
@@ -175,18 +175,18 @@ exports.scheduleMessage = async (req, res) => {
 
   const userId = req.user.id;
 
- cron.schedule(cronExpression, async () => {
-  console.log('📆 Scheduled job triggered at:', new Date());
-  try {
-    const result = await sendMessageCore({ from, to, message, pdf, docx, photo, video, userId });
-    console.log("✅ Message sent via scheduler:", result);
-  } catch (err) {
-    console.error('❌ Scheduled message error:', err.message);
-  }
-}, {
-  scheduled: true,
-  timezone: 'Asia/Kolkata',
-});
+  cron.schedule(cronExpression, async () => {
+    console.log('📆 Scheduled job triggered at:', new Date());
+    try {
+      const result = await sendMessageCore({ from, to, message, pdf, docx, photo, video, userId });
+      console.log("✅ Message sent via scheduler:", result);
+    } catch (err) {
+      console.error('❌ Scheduled message error:', err.message);
+    }
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Kolkata',
+  });
 
 
   res.json({ status: 'scheduled', scheduledFor: scheduleDate.toISOString() });
@@ -409,7 +409,7 @@ exports.sendMessage = async (req, res) => {
   const {
     to,
     message,
-    from, // array of session numbers (e.g., ["9188XXXX", "9196XXXX"])
+    from, // array of session numbers
     pdf,
     docx,
     photo,
@@ -423,6 +423,13 @@ exports.sendMessage = async (req, res) => {
   if (!message && !photo && !pdf && !docx && !video) {
     return res.status(400).json({ error: 'At least one message or media type must be provided.' });
   }
+
+  const BATCH_SIZE = 900;
+  const PAUSE_DURATION = 60 * 60 * 1000; // 60 minutes
+
+
+
+  const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
   try {
     const userId = req.user.id;
@@ -461,7 +468,6 @@ exports.sendMessage = async (req, res) => {
           }
         }
 
-        // Media files
         await sendLocalFiles(photo, 'photo', chatId, currentClient, sessionId);
         await sendLocalFiles(pdf, 'pdf', chatId, currentClient, sessionId);
         await sendLocalFiles(docx, 'docx', chatId, currentClient, sessionId);
@@ -471,66 +477,79 @@ exports.sendMessage = async (req, res) => {
       }
     };
 
-    for (let recipient of to) {
-      let messageSent = false;
+    // Main batching loop
+    for (let i = 0; i < to.length; i += BATCH_SIZE) {
+      const batch = to.slice(i, i + BATCH_SIZE);
+      console.log(`🚀 Sending batch ${i / BATCH_SIZE + 1} of ${Math.ceil(to.length / BATCH_SIZE)}`);
 
-      for (let sessionId of from) {
-        try {
-          await trySendingMessage(sessions, recipient, message, sessionId);
-          messageSent = true;
-          break;
-        } catch (err) {
-          results.push({ from: sessionId, to: recipient, error: err.message });
+      for (let recipient of batch) {
+        let messageSent = false;
+
+        for (let sessionId of from) {
+          try {
+            await trySendingMessage(sessions, recipient, message, sessionId);
+            messageSent = true;
+            break; // If success, break inner session loop
+          } catch (err) {
+            results.push({ from: sessionId, to: recipient, error: err.message });
+            if (err.message.includes('blocked') || err.message.includes('invalid session')) {
+              console.warn(`⚠️ Session ${sessionId} might be blocked.`);
+            }
+          }
+        }
+
+        if (!messageSent) {
+          results.push({ to: recipient, error: 'No available session to send the message' });
         }
       }
 
-      if (!messageSent) {
-        results.push({ to: recipient, error: 'No available session to send the message' });
+      if (i + BATCH_SIZE < to.length) {
+        console.log(`⏳ Pausing for ${PAUSE_DURATION / 60000} minutes before next batch...`);
+        await delay(PAUSE_DURATION);
       }
     }
 
+    // Process successful messages
     const successfulSends = results.filter(r => r.status === 'sent' && r.to);
-const combined = {
-  user: userId,
-  from: new Set(),
-  to: new Set(),
-  message: new Set(),
-  pdf: null,
-  docx: null,
-  photo: new Set(),
-  video: null,
-};
+    const combined = {
+      user: userId,
+      from: new Set(),
+      to: new Set(),
+      message: new Set(),
+      pdf: null,
+      docx: null,
+      photo: new Set(),
+      video: null,
+    };
 
-for (let entry of successfulSends) {
-  if (entry.from) combined.from.add(entry.from);
-  if (entry.to) combined.to.add(entry.to.replace('@c.us', ''));
-  
-  if (entry.type === 'text' && entry.message) {
-    combined.message.add(entry.message);
-  } else if (entry.type === 'pdf' && entry.file && !combined.pdf) {
-    combined.pdf = entry.file;
-  } else if (entry.type === 'docx' && entry.file && !combined.docx) {
-    combined.docx = entry.file;
-  } else if (entry.type === 'photo' && entry.file) {
-    combined.photo.add(entry.file);
-  } else if (entry.type === 'video' && entry.file && !combined.video) {
-    combined.video = entry.file;
-  }
-}
+    for (let entry of successfulSends) {
+      if (entry.from) combined.from.add(entry.from);
+      if (entry.to) combined.to.add(entry.to.replace('@c.us', ''));
 
-// Convert Sets to Arrays
-combined.from = [...combined.from];
-combined.to = [...combined.to];
-combined.message = [...combined.message];
-combined.photo = [...combined.photo];
+      if (entry.type === 'text' && entry.message) {
+        combined.message.add(entry.message);
+      } else if (entry.type === 'pdf' && entry.file && !combined.pdf) {
+        combined.pdf = entry.file;
+      } else if (entry.type === 'docx' && entry.file && !combined.docx) {
+        combined.docx = entry.file;
+      } else if (entry.type === 'photo' && entry.file) {
+        combined.photo.add(entry.file);
+      } else if (entry.type === 'video' && entry.file && !combined.video) {
+        combined.video = entry.file;
+      }
+    }
 
+    // Convert Sets to Arrays
+    combined.from = [...combined.from];
+    combined.to = [...combined.to];
+    combined.message = [...combined.message];
+    combined.photo = [...combined.photo];
 
-
-   console.log("🔥 Results:", JSON.stringify(results, null, 2));
+    // Log and save
+    console.log("🔥 Results:", JSON.stringify(results, null, 2));
     console.log("✅ Successful Sends:", JSON.stringify(successfulSends, null, 2));
     console.log("🧩 Final Combined Object:", JSON.stringify(combined, null, 2));
 
-    // ✅ Save to DB
     if (successfulSends.length > 0) {
       await Whatsapp.create(combined);
     }
@@ -542,6 +561,8 @@ combined.photo = [...combined.photo];
     res.status(500).json({ error: err.message });
   }
 };
+
+
 
 
 exports.getAllMessages = async (req, res) => {
